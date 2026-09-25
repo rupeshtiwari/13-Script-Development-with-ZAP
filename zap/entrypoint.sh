@@ -118,8 +118,12 @@ fi
 
 # Parse the installed version defensively (never let a no-match exit the script).
 BETA_VER="$(api autoupdate/view/installedAddons \
-    | tr ',' '\n' | grep -A1 '"ascanrulesBeta"' \
-    | grep -oE '[0-9]+(\.[0-9]+)*' | head -1 || true)"
+    | python3 -c 'import json,sys
+try:
+    d=json.load(sys.stdin)
+    print(next(a.get("version","") for a in d["installedAddons"] if a.get("id")=="ascanrulesBeta"))
+except Exception:
+    print("")' 2>/dev/null || true)"
 BETA_MAJOR="${BETA_VER%%.*}"
 if [ -n "${BETA_MAJOR}" ] && [ "${BETA_MAJOR}" -lt 66 ] 2>/dev/null; then
     echo "[zap-entrypoint] WARNING: ascanrulesBeta version ${BETA_VER} is below v66" >&2
