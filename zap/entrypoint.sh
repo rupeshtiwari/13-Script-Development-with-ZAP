@@ -39,20 +39,30 @@ for _ in $(seq 1 60); do
     sleep 2
 done
 
+kick_browser() {
+    firefox-esr --headless --no-remote --profile "$(mktemp -d)" \
+        "http://localhost:${GUI_PORT}/zap/" >/tmp/zap-kick.log 2>&1 &
+    KICK_PID=$!
+}
+
 echo "[zap-entrypoint] kicking the ZAP core via headless browser..."
-KICK_PROFILE="$(mktemp -d)"
-firefox-esr --headless --no-remote --profile "${KICK_PROFILE}" \
-    "http://localhost:${GUI_PORT}/zap/" >/tmp/zap-kick.log 2>&1 &
-KICK_PID=$!
+kick_browser
 
 echo "[zap-entrypoint] waiting for the ZAP API on :${API_PORT}..."
 API_UP=""
-for _ in $(seq 1 90); do
+for i in $(seq 1 150); do
+    # `|| echo 000` keeps a pre-boot connection failure (curl exit 7) from
+    # tripping `set -e` via the command substitution.
     code="$(curl -s -o /dev/null -w '%{http_code}' \
-        "http://localhost:${API_PORT}/JSON/core/view/version/?apikey=${API_KEY}")"
+        "http://localhost:${API_PORT}/JSON/core/view/version/?apikey=${API_KEY}" || echo 000)"
     if [ "${code}" = "200" ]; then
         API_UP=1
         break
+    fi
+    # If the kick browser died before the core booted, kick again.
+    if ! kill -0 "${KICK_PID}" 2>/dev/null; then
+        echo "[zap-entrypoint] kick browser exited; re-kicking..."
+        kick_browser
     fi
     sleep 2
 done
@@ -66,39 +76,55 @@ echo "[zap-entrypoint] ZAP core is up: $(curl -s "http://localhost:${API_PORT}/J
 kill "${KICK_PID}" >/dev/null 2>&1 || true
 
 api() {
-    curl -s "http://localhost:${API_PORT}/JSON/$1/?apikey=${API_KEY}&${2:-}"
+    # `|| true` so a transient curl failure never trips `set -e`.
+    curl -s "http://localhost:${API_PORT}/JSON/$1/?apikey=${API_KEY}&${2:-}" || true
 }
 
 # Install ascanrulesBeta (provides NoSQL MongoDB rule 40033) unless already present.
-if api ascan/view/scanners "scanId=40033" | grep -q '"id":"40033"'; then
-    echo "[zap-entrypoint] ascanrulesBeta already present (rule 40033 found)."
+if api autoupdate/view/installedAddons | grep -q '"ascanrulesBeta"'; then
+    echo "[zap-entrypoint] ascanrulesBeta already installed."
 else
     echo "[zap-entrypoint] installing ascanrulesBeta from the marketplace..."
     api autoupdate/action/installAddon "id=ascanrulesBeta" >/dev/null
-    for _ in $(seq 1 60); do
-        if api autoupdate/view/installedAddons | grep -q '"ascanrulesBeta"'; then
-            break
-        fi
-        sleep 2
-    done
 fi
 
-# Verify the add-on and rule 40033.
-INSTALLED="$(api autoupdate/view/installedAddons)"
-BETA_VER="$(echo "${INSTALLED}" | tr ',{}' '\n\n\n' | grep -A2 '"ascanrulesBeta"' | grep -oE '"version":"[0-9.]+"' | grep -oE '[0-9.]+' | head -1)"
-if ! echo "${INSTALLED}" | grep -q '"ascanrulesBeta"'; then
-    echo "[zap-entrypoint] ERROR: ascanrulesBeta not installed" >&2
+# Wait for the add-on to register (marketplace download can take ~30s).
+BETA_OK=""
+for _ in $(seq 1 90); do
+    if api autoupdate/view/installedAddons | grep -q '"ascanrulesBeta"'; then
+        BETA_OK=1
+        break
+    fi
+    sleep 2
+done
+if [ -z "${BETA_OK}" ]; then
+    echo "[zap-entrypoint] ERROR: ascanrulesBeta did not install" >&2
     exit 1
 fi
-if ! api ascan/view/scanners "scanId=40033" | grep -q '"id":"40033"'; then
+
+# Verify NoSQL rule 40033 is now available as an active-scan rule.
+RULE_OK=""
+for _ in $(seq 1 30); do
+    if api ascan/view/scanners | grep -q '"id":"40033"'; then
+        RULE_OK=1
+        break
+    fi
+    sleep 2
+done
+if [ -z "${RULE_OK}" ]; then
     echo "[zap-entrypoint] ERROR: NoSQL rule 40033 not available after install" >&2
     exit 1
 fi
+
+# Parse the installed version defensively (never let a no-match exit the script).
+BETA_VER="$(api autoupdate/view/installedAddons \
+    | tr ',' '\n' | grep -A1 '"ascanrulesBeta"' \
+    | grep -oE '[0-9]+(\.[0-9]+)*' | head -1 || true)"
 BETA_MAJOR="${BETA_VER%%.*}"
 if [ -n "${BETA_MAJOR}" ] && [ "${BETA_MAJOR}" -lt 66 ] 2>/dev/null; then
     echo "[zap-entrypoint] WARNING: ascanrulesBeta version ${BETA_VER} is below v66" >&2
 fi
-echo "[zap-entrypoint] ascanrulesBeta v${BETA_VER} installed; NoSQL rule 40033 available."
+echo "[zap-entrypoint] ascanrulesBeta v${BETA_VER:-unknown} installed; NoSQL rule 40033 available."
 
 touch /tmp/zap-ready
 echo "[zap-entrypoint] READY. GUI: http://localhost:${GUI_PORT}/zap/  API/proxy: :${API_PORT}"
