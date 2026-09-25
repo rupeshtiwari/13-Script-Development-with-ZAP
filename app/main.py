@@ -127,28 +127,39 @@ def search(q: str = "") -> str:
 # ---------------------------------------------------------------------------
 # 2. NoSQL injection — account lookup (MongoDB)
 # ---------------------------------------------------------------------------
+# Matches qs-style bracket notation such as "username[$ne]".
+_OP_KEY_RE = re.compile(r"^(?P<field>[^\[]+)\[(?P<op>\$[a-zA-Z]+)\]$")
+_PROJECTION = {"_id": 0, "username": 1, "email": 1, "role": 1}
+
+
 @app.get("/api/account")
-def account(username: str = "") -> JSONResponse:
+def account(request: Request) -> JSONResponse:
+    params = request.query_params
     try:
         if VULNERABLE:
-            # VULNERABLE: user input concatenated into a $where JavaScript
-            # expression, allowing MongoDB operator / JS injection.
-            where = "this.username == '" + username + "'"
-            docs = list(
-                mdb.users.find(
-                    {"$where": where}, {"_id": 0, "username": 1, "email": 1, "role": 1}
-                )
-            )
+            # VULNERABLE: the query string is parsed qs-style, so an attacker
+            # can smuggle MongoDB operators through the parameter name, e.g.
+            #   /api/account?username[$ne]=
+            #   /api/account?username[$regex]=.*
+            # which turns an equality lookup into an operator query and returns
+            # accounts that should not match — classic NoSQL operator injection.
+            username_filter: object = ""
+            for key, value in params.multi_items():
+                m = _OP_KEY_RE.match(key)
+                if m and m.group("field") == "username":
+                    if not isinstance(username_filter, dict):
+                        username_filter = {}
+                    username_filter[m.group("op")] = value
+                elif key == "username" and not isinstance(username_filter, dict):
+                    username_filter = value
+            docs = list(mdb.users.find({"username": username_filter}, _PROJECTION))
         else:
-            # REMEDIATED: reject non-string input and use an equality match.
+            # REMEDIATED: only ever treat username as a plain string and match
+            # for equality; operator smuggling via the parameter name is ignored.
+            username = params.get("username", "")
             if not isinstance(username, str):
                 return JSONResponse({"error": "invalid username"}, status_code=400)
-            docs = list(
-                mdb.users.find(
-                    {"username": username},
-                    {"_id": 0, "username": 1, "email": 1, "role": 1},
-                )
-            )
+            docs = list(mdb.users.find({"username": username}, _PROJECTION))
         return JSONResponse({"accounts": docs, "count": len(docs)})
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"error": str(exc)}, status_code=500)
