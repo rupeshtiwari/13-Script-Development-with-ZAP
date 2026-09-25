@@ -1,93 +1,78 @@
-# Validate Injection, XSS, and CSRF with ZAP
+# Script Development with ZAP — Demo Labs
 
-A small, self-contained lab for practising vulnerability validation with
-[OWASP ZAP](https://www.zaproxy.org/). It runs a deliberately vulnerable
-"Globomantics" web app alongside ZAP, so you can confirm real findings and then
-watch them disappear once the app is fixed.
+Hands-on labs for extending [OWASP ZAP](https://www.zaproxy.org/) beyond default
+scans: targeted vulnerability validation, custom scripting, and DevSecOps
+automation. Every lab runs against one deliberately vulnerable **Globomantics**
+training application (Python/FastAPI + PostgreSQL + MongoDB) on your own machine.
 
-> **Safety:** every service binds to `127.0.0.1` only. Point ZAP **only** at the
-> training app in this project. Never aim it at any host you do not own.
+> **Authorization and scope.** All techniques in these labs target **only** the
+> local Globomantics training app. Never point them at any system you are not
+> explicitly authorized to test.
 
-## What's inside
+---
 
-| Service | Role |
-|---------|------|
-| `app` | Globomantics web app (FastAPI). Toggle between a **vulnerable** and a **remediated** build with `APP_BUILD`. |
-| `postgres` | Product catalog (used by the SQL-injection search). |
-| `mongo` | Account store (used by the NoSQL account lookup). |
-| `zap` | OWASP ZAP with the Webswing GUI and the `ascanrulesBeta` add-on. |
-
-### The vulnerable endpoints
-
-| Endpoint | Weakness |
-|----------|----------|
-| `GET /search?q=` | SQL injection (string-concatenated PostgreSQL query) |
-| `GET /api/account?username=` | NoSQL injection (MongoDB operator injection) |
-| `GET /admin/ping?host=` | OS command injection (`shell=True`) |
-| `GET /greet?name=` | Reflected XSS in three contexts: HTML body, HTML attribute, JS string |
-| `POST /account/email` | CSRF-protected email change (login sets a session cookie) |
-
-## Prerequisites
-
-- Docker with Docker Compose, on an arm64 (Apple Silicon) host.
-- The pinned ZAP image is pulled automatically on first start.
-
-## Quick start
+## Set up your machine (once)
 
 ```bash
-# Bring the whole stack up (defaults to the vulnerable build)
-./scripts/demo_up.sh
-
-# ... work through the lab ...
-
-# Tear everything down
-./scripts/demo_down.sh
+./env-setup/setup-macos.sh
 ```
 
-`demo_up.sh` waits until all four services are healthy and prints their URLs:
+This one script checks and, where needed, installs every dependency (Homebrew,
+Colima, Docker, Docker Compose, tmux, Python) and pulls the pinned ZAP image. It
+prints a readiness table and writes a full transcript to `env-setup/logs/`.
 
-| What | URL |
-|------|-----|
-| Globomantics app | http://localhost:8000/ |
-| App health | http://localhost:8000/health |
-| ZAP GUI (Webswing, open in a browser) | http://localhost:8080/zap/ |
-| ZAP API / proxy | http://localhost:8090 |
+---
 
-Configure your browser (or ZAP) to use `localhost:8090` as the HTTP proxy to
-route traffic through ZAP.
+## Labs
 
-## Switching between the vulnerable and remediated app
+### Module 1 — Targeted security testing and ZAP scripting
 
-The same code base ships both behaviours; pick one with `APP_BUILD`:
+| # | Lab | You will learn | Objectives | Links |
+|---|-----|----------------|------------|-------|
+| 1 | **Validate injection, XSS, and CSRF with ZAP** | Build a focused scan policy; prove SQL, NoSQL, and command injection; map reflected XSS to its three contexts; compare CSRF token states; record an alert disposition | EO1a · EO1b · EO1c | [Runbook](module1/m1-demo1-validate-injection-xss-and-csrf-with-zap/README.md) · [Scripts](module1/m1-demo1-validate-injection-xss-and-csrf-with-zap/scripts) |
 
-```bash
-# Vulnerable (default)
-APP_BUILD=vulnerable ./scripts/demo_up.sh
+*Further Module 1 and Module 2 labs are added under `module1/` and `module2/`
+following the same layout.*
 
-# Remediated — the fixes are in place
-APP_BUILD=remediated docker compose up -d --build app
+---
+
+## Learning objectives
+
+1. **Scanning techniques for specific vulnerabilities**
+   - EO1a — Configure specialized scanners for injection vulnerabilities (SQL, NoSQL, command)
+   - EO1b — Implement Cross-Site Scripting (XSS) validation with context-specific payloads
+   - EO1c — Execute CSRF token-bypass techniques for testing anti-CSRF protections
+
+*(Objectives for Modules 2–3 are covered by their own labs.)*
+
+---
+
+## Repository layout
+
+```
+env-setup/
+  setup-macos.sh          One-file dependency check + install (verbose log)
+scripts/
+  fmt.py                  Shared colored output formatter (one palette to swap)
+  lib.sh                  Shared shell helpers
+  demo_up.sh / demo_down.sh / preflight_check.sh   Shared stack engine
+app/                      Globomantics FastAPI app (vulnerable + remediated builds)
+zap/                      ZAP container entrypoint (Webswing GUI + add-on install)
+docker-compose.yaml       zap + app + postgres + mongo (bound to 127.0.0.1)
+data/payloads/            Per-lab step manifests
+docs/                     Gap report, preflight report, alert-disposition template
+module1/
+  m1-demo1-.../
+    README.md             The lab runbook
+    scripts/              demo_up · demo_down · demo_reset · capture_demo_output · preflight_check
+    logs/                 Validation logs (git-ignored)
 ```
 
-In the remediated build the SQL query is parameterized, the Mongo lookup treats
-`username` as a plain string, the ping command validates its input and drops
-`shell=True`, XSS output is context-encoded, and CSRF tokens are single-use and
-bound to the session.
+---
 
-## Checking your work
+## Technology used
 
-`scripts/preflight_check.sh` drives ZAP end to end: it builds a scoped scan
-policy (SQL-injection family, NoSQL `40033`, command-injection `90020`/`90037`),
-active-scans each injection endpoint, and verifies the XSS reflections and the
-CSRF behaviour — first against the vulnerable build, then against the remediated
-one.
-
-```bash
-./scripts/preflight_check.sh
-```
-
-It prints `PASS`/`FAIL` per check and exits non-zero if anything fails.
-
-## Recording your findings
-
-Use `docs/alert-disposition-template.md` to log each alert, its endpoint, your
-triage decision, and the evidence behind it.
+ZAP 2.17.0 (`ghcr.io/zaproxy/zaproxy:stable`, pinned by digest), the
+`ascanrules` and `ascanrulesBeta` active-scan add-ons, FastAPI, PostgreSQL,
+MongoDB, Docker Compose, and Colima. Each lab uses the subset its objectives
+require; the coverage of the full course tech stack is tracked as more labs land.
