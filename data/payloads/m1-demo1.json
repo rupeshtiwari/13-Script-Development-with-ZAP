@@ -1,0 +1,78 @@
+{
+  "demo": "m1-demo1-validate-injection-xss-and-csrf-with-zap",
+  "authorization": "All requests target ONLY the local Globomantics training app on the compose network. Never point these at any other host.",
+  "app_internal": "http://app:8000",
+  "zap": "http://localhost:8090",
+  "steps": [
+    {
+      "id": 1,
+      "title": "Build the targeted scan policy",
+      "lo": "EO1a",
+      "artifact": "Configured targeted scan policy and rule list",
+      "endpoint": null,
+      "focus": ["40018", "40033", "90020", "90037"],
+      "expected": "policy enables exactly the SQL-injection family, NoSQL 40033, and command-injection 90020/90037"
+    },
+    {
+      "id": 2,
+      "title": "Validate SQL injection on product search",
+      "lo": "EO1a",
+      "artifact": "Configured targeted scan policy and rule list",
+      "endpoint": "/search",
+      "param": "q",
+      "input": "Router",
+      "focus": ["pluginId", "confidence"],
+      "expected": "alert 40018 (or 40022) raised on /search"
+    },
+    {
+      "id": 3,
+      "title": "Validate NoSQL injection on account lookup",
+      "lo": "EO1a",
+      "artifact": "Configured targeted scan policy and rule list",
+      "endpoint": "/api/account",
+      "param": "username",
+      "input": "alice",
+      "focus": ["baseline_count", "injected_count", "pluginId"],
+      "expected": "operator injection returns more accounts than the baseline AND alert 40033 raised"
+    },
+    {
+      "id": 4,
+      "title": "Validate command injection on admin diagnostics",
+      "lo": "EO1a",
+      "artifact": "Configured targeted scan policy and rule list",
+      "endpoint": "/admin/ping",
+      "param": "host",
+      "input": "127.0.0.1",
+      "focus": ["pluginId", "confidence"],
+      "expected": "alert 90037 (or 90020) raised on /admin/ping"
+    },
+    {
+      "id": 5,
+      "title": "Map reflected XSS to its three output contexts",
+      "lo": "EO1b",
+      "artifact": "XSS request and response body",
+      "endpoint": "/greet",
+      "param": "name",
+      "focus": ["html_body", "html_attribute", "js_string"],
+      "expected": "the marker is reflected unescaped in the HTML body, an HTML attribute, and a JS string"
+    },
+    {
+      "id": 6,
+      "title": "Compare CSRF token states",
+      "lo": "EO1c",
+      "artifact": "CSRF token-state comparison",
+      "endpoint": "/account/email",
+      "focus": ["reused_token", "cross_session"],
+      "expected": "valid=200, missing=403, invalid=403, reused=200, cross-session=200 on the vulnerable build"
+    },
+    {
+      "id": 7,
+      "title": "Record the alert disposition",
+      "lo": "EO1a, EO1b, EO1c",
+      "artifact": "Alert disposition record",
+      "endpoint": null,
+      "focus": ["disposition"],
+      "expected": "each observed alert is reconciled with app behavior and marked confirmed or false positive"
+    }
+  ]
+}

@@ -1,0 +1,70 @@
+# Demo stack for M1 Clip 3 — "Validate injection, XSS, and CSRF with ZAP".
+# All services are arm64 (Apple Silicon / Colima). Ports are bound to
+# 127.0.0.1 only: this environment must never be reachable from the network.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  mongo:
+    image: mongo:7
+    environment:
+      MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE}
+    ports:
+      - "127.0.0.1:27017:27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build: ./app
+    environment:
+      APP_BUILD: ${APP_BUILD:-vulnerable}
+      PG_DSN: "host=postgres port=5432 dbname=${POSTGRES_DB} user=${POSTGRES_USER} password=${POSTGRES_PASSWORD}"
+      MONGO_URI: "mongodb://mongo:27017"
+      MONGO_DB: ${MONGO_INITDB_DATABASE}
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  zap:
+    image: ${ZAP_IMAGE}
+    entrypoint: ["/bin/bash", "/zap-entrypoint.sh"]
+    environment:
+      ZAP_API_KEY: ${ZAP_API_KEY}
+    volumes:
+      - ./zap/entrypoint.sh:/zap-entrypoint.sh:ro
+    ports:
+      - "127.0.0.1:8080:8080"   # Webswing GUI
+      - "127.0.0.1:8090:8090"   # ZAP proxy + API
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/zap-ready && curl -fsS \"http://localhost:8090/JSON/core/view/version/?apikey=${ZAP_API_KEY}\" >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 40
+      start_period: 60s
