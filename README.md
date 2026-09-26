@@ -79,12 +79,14 @@ zap/                      ZAP container entrypoint (Webswing GUI + add-on instal
 docker-compose.yaml       zap + app + postgres + mongo (bound to 127.0.0.1)
 data/payloads/            Per-lab step manifests
 docs/                     Gap report, preflight report, alert-disposition template
-module1/                  Module 1 overview + its labs
-  README.md
+module1/
+  README.md               Module 1 overview: objectives and labs
   m1-demo1-.../
     README.md             The lab runbook
     scripts/              demo_up · demo_down · demo_reset · capture_demo_output · preflight_check
     logs/                 Validation logs (git-ignored)
+module2/
+  README.md               Module 2 overview: objectives and labs
 ```
 
 ---
