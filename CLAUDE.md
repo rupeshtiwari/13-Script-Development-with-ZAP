@@ -13,3 +13,10 @@ Key constraints from the outline:
 - Two modules, ~45 min total: Module 1 (targeted testing + JS/Python/auth scripts, 23 min),
   Module 2 (Automation Framework, ZAP API, alertFilter/exitStatus gates in GitHub Actions, 22 min).
 - Each demo clip lists named on-screen proof artifacts; demo assets should produce exactly those.
+
+## Commit attribution (owner's rule)
+
+- All commits are authored and committed by **Rupesh Tiwari <roopkt@gmail.com>** only.
+- Do NOT add `Co-Authored-By:` or `Claude-Session:` trailers, or any AI attribution,
+  to commit messages. The repository history shows the owner alone.
+- Work on `main`; no per-demo branches; do not rewrite history unless explicitly asked.
